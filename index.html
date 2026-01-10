@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>精熟度分析系統 - 行動優化版</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* 基礎樣式與行動端優化 */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f0f4f8; padding: 15px; color: #333; margin: 0; }
+        .container { max-width: 1000px; margin: auto; }
+        .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { color: #2c3e50; font-size: 1.25rem; margin-top: 0; border-left: 5px solid #3498db; padding-left: 12px; margin-bottom: 15px; }
+        
+        /* 彈性佈局優化 */
+        .flex-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+        .input-group { flex: 1; min-width: 140px; }
+        label { display: block; margin-bottom: 6px; font-weight: bold; color: #555; font-size: 0.9rem; }
+        
+        /* 輸入元件加大，方便手指觸控 */
+        select, input, button { 
+            width: 100%; padding: 14px; border: 1px solid #ddd; border-radius: 10px; 
+            box-sizing: border-box; font-size: 16px; appearance: none; -webkit-appearance: none;
+        }
+        button { background: #3498db; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; active { transform: scale(0.98); } }
+        button:hover { background: #2980b9; }
+        
+        /* 文字表格行動端滾動 */
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; border: 1px solid #eee; }
+        .summary-table { width: 100%; border-collapse: collapse; min-width: 300px; }
+        .summary-table th, .summary-table td { border: 1px solid #eee; padding: 12px; text-align: center; }
+        .summary-table th { background: #f8f9fa; color: #3498db; }
+        .count-badge { background: #e8f8f0; color: #2ecc71; padding: 4px 12px; border-radius: 12px; font-weight: bold; }
+
+        /* 個人按鈕流動佈局 */
+        .user-btn-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-bottom: 15px; }
+        .user-btn { 
+            background: #fff; color: #3498db; border: 2px solid #3498db; 
+            padding: 10px 5px; font-size: 14px; border-radius: 8px; text-align: center;
+        }
+        .user-btn.active { background: #3498db; color: white; } 
+        
+        /* 圖表響應式容器 */
+        .charts-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
+        @media (min-width: 768px) { .charts-grid { grid-template-columns: 1fr 1fr; } }
+        .chart-container { background: #fff; padding: 10px; border-radius: 12px; border: 1px solid #eee; height: 300px; position: relative; }
+        .radar-box { height: 400px; width: 100%; margin: 0 auto; }
+
+        /* 手機版專用微調 */
+        @media (max-width: 480px) {
+            .card { padding: 15px; }
+            .input-group { min-width: 100%; } /* 手機上回報輸入框改為全寬 */
+            button { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>🚀 快速回報</h2>
+        <div class="flex-row">
+            <div class="input-group">
+                <label>選擇人員</label>
+                <select id="userName"><option value="">載入中...</option></select>
+            </div>
+            <div class="input-group">
+                <label>選擇任務</label>
+                <select id="taskName"><option value="">載入中...</option></select>
+            </div>
+            <div style="width: 100%; margin-top: 5px;">
+                <button onclick="submitReport()">確認提交回報</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 區間統計摘要</h2>
+        <div class="flex-row">
+            <div class="input-group"><label>起始</label><input type="date" id="startDate"></div>
+            <div class="input-group"><label>結束</label><input type="date" id="endDate"></div>
+            <button style="background:#27ae60; flex: 1;" onclick="updateDashboard()">更新查詢</button>
+        </div>
+
+        <div class="table-scroll">
+            <table class="summary-table">
+                <thead>
+                    <tr><th>任務項目</th><th>總計</th></tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="chartsGrid" class="charts-grid"></div>
+
+    <div class="card">
+        <h2>👤 個人生涯能力分析</h2>
+        <div id="userButtons" class="user-btn-group"></div>
+        <div class="radar-box">
+            <canvas id="personalRadarChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbwM-y3UbUnGxRbvDzsIRwUKP4QuFa5CS75sGfaEqhAXFnhnY9ZCUsZsKpVQ8ZxaQTyxFQ/exec"; 
+    const EMPLOYEE_LIST = ["藍鈞慶", "張茵婕", "沈奇弘", "邱毓哲", "陳琇瑢", "柯伯翰", "陳又瑋", "盧詩雨", "謝心云", "單虹", "謝秉諺", "蕭佑珊", "李昌恩", "林柏志", "林博揚", "徐楷茵", "葉香妤", "簡君庭", "林虹瑩"];
+    const TASK_LIST = ["金龍山日出", "綠廊探險隊", "天氣瓶DIY", "壓克力板畫", "晨曦漫步", "VIK", "領騎導覽", "晚間表演"];
+    
+    let radarChart = null;
+    let allData = [];
+
+    function setupUI() {
+        const userSelect = document.getElementById('userName');
+        const taskSelect = document.getElementById('taskName');
+        const userButtons = document.getElementById('userButtons');
+        
+        userSelect.innerHTML = '<option value="">-- 選擇人員 --</option>';
+        taskSelect.innerHTML = '<option value="">-- 選擇任務 --</option>';
+
+        EMPLOYEE_LIST.forEach(name => {
+            userSelect.add(new Option(name, name));
+            const btn = document.createElement('div'); // 手機版改用 div 模擬按鈕更好控制樣式
+            btn.className = 'user-btn';
+            btn.innerText = name;
+            btn.onclick = () => showPersonalRadar(name, btn);
+            userButtons.appendChild(btn);
+        });
+        TASK_LIST.forEach(task => taskSelect.add(new Option(task, task)));
+    }
+
+    async function loadDataAndDraw() {
+        try {
+            const res = await fetch(API_URL);
+            allData = await res.json(); 
+            updateDashboard();
+            const firstBtn = document.querySelector('.user-btn');
+            if(firstBtn) firstBtn.click();
+        } catch (e) {
+            console.error("Data load failed", e);
+        }
+    }
+
+    function updateDashboard() {
+        updateTextTable(); 
+        updateBarCharts(); 
+    }
+
+    function updateTextTable() {
+        const start = document.getElementById('startDate').value;
+        const end = document.getElementById('endDate').value;
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+
+        TASK_LIST.forEach(task => {
+            const total = allData.slice(1).filter(row => {
+                const d = new Date(row[2]);
+                return row[1] === task && (!start || d >= new Date(start)) && (!end || d <= new Date(end));
+            }).length;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${task}</td><td><span class="count-badge">${total}</span></td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function updateBarCharts() {
+        const start = document.getElementById('startDate').value;
+        const end = document.getElementById('endDate').value;
+        const grid = document.getElementById('chartsGrid');
+        grid.innerHTML = '';
+
+        TASK_LIST.forEach(task => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'chart-container';
+            wrapper.innerHTML = `<canvas id="bar-${task}"></canvas>`;
+            grid.appendChild(wrapper);
+
+            const stats = EMPLOYEE_LIST.map(name => {
+                return allData.slice(1).filter(row => {
+                    const d = new Date(row[2]);
+                    return row[0] === name && row[1] === task && (!start || d >= new Date(start)) && (!end || d <= new Date(end));
+                }).length;
+            });
+
+            new Chart(document.getElementById(`bar-${task}`), {
+                type: 'bar',
+                data: { labels: EMPLOYEE_LIST, datasets: [{ label: '完成次數', data: stats, backgroundColor: '#3498db' }] },
+                options: { 
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, title: { display: true, text: task } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        });
+    }
+
+    function showPersonalRadar(name, btnElement) {
+        document.querySelectorAll('.user-btn').forEach(b => b.classList.remove('active'));
+        btnElement.classList.add('active');
+
+        const stats = TASK_LIST.map(task => allData.slice(1).filter(row => row[0] === name && row[1] === task).length);
+        const ctx = document.getElementById('personalRadarChart').getContext('2d');
+        if (radarChart) radarChart.destroy();
+        radarChart = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: TASK_LIST,
+                datasets: [{
+                    label: name,
+                    data: stats,
+                    backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                    borderColor: '#e74c3c',
+                    pointBackgroundColor: '#e74c3c'
+                }]
+            },
+            options: { 
+                responsive: true, maintainAspectRatio: false,
+                scales: { r: { beginAtZero: true, ticks: { display: false, stepSize: 1 } } }
+            }
+        });
+    }
+
+    async function submitReport() {
+        const name = document.getElementById('userName').value;
+        const task = document.getElementById('taskName').value;
+        if (!name || !task) return alert("請完整填寫人員與任務");
+        if (!confirm(`確認提交：${name} - ${task}？`)) return;
+
+        await fetch(API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ name, task }) });
+        alert("提交成功！數據稍後自動更新。");
+        loadDataAndDraw();
+    }
+
+    window.onload = function() {
+        setupUI();
+        const now = new Date();
+        document.getElementById('startDate').value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        document.getElementById('endDate').value = now.toISOString().split('T')[0];
+        loadDataAndDraw();
+    };
+</script>
+</body>
+</html>
