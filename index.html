@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>精熟度分析系統 v7.1</title>
+    <title>精熟度分析系統 v7.5 - 排版優化版</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f4f8; padding: 15px; color: #333; margin: 0; }
@@ -16,18 +16,31 @@
         select, input, button { width: 100%; padding: 14px; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; font-size: 16px; }
         button { background: #3498db; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:active { transform: scale(0.98); }
-        .table-scroll { overflow-x: auto; border-radius: 8px; border: 1px solid #eee; }
+        .table-scroll { overflow-x: auto; border-radius: 8px; border: 1px solid #eee; margin-bottom: 20px; }
         .summary-table { width: 100%; border-collapse: collapse; }
         .summary-table th, .summary-table td { border: 1px solid #eee; padding: 12px; text-align: center; }
         .summary-table th { background: #f8f9fa; color: #3498db; }
         .count-badge { background: #e8f8f0; color: #2ecc71; padding: 4px 12px; border-radius: 12px; font-weight: bold; }
+        
+        /* 摺疊面板樣式 - 已併入摘要卡片 */
+        .charts-grid { display: flex; flex-direction: column; gap: 8px; }
+        .accordion-item { background: #fff; border-radius: 10px; overflow: hidden; border: 1px solid #f0f0f0; }
+        .accordion-header { width: 100%; padding: 12px 15px; background: #fcfcfc; text-align: left; border: none; outline: none; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-weight: bold; color: #555; font-size: 0.95rem; }
+        .accordion-header::after { content: '▼'; font-size: 10px; color: #bbb; transition: 0.3s; }
+        .accordion-header.active::after { transform: rotate(180deg); }
+        .accordion-content { display: none; padding: 10px; border-top: 1px solid #f9f9f9; }
+        .chart-container { height: 350px; position: relative; width: 100%; }
+        
+        /* 雷達圖區塊樣式 */
         .user-btn-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-bottom: 15px; }
         .user-btn { background: #fff; color: #3498db; border: 2px solid #3498db; padding: 10px 5px; font-size: 14px; border-radius: 8px; text-align: center; cursor: pointer; }
         .user-btn.active { background: #3498db; color: white; }
-        .charts-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
-        @media (min-width: 768px) { .charts-grid { grid-template-columns: 1fr 1fr; } }
-        .chart-container { background: #fff; padding: 10px; border-radius: 12px; border: 1px solid #eee; height: 300px; position: relative; }
-        .radar-box { height: 400px; width: 100%; margin: 0 auto; }
+        .radar-box { height: 350px; width: 100%; margin: 0 auto; }
+        .radar-data-table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 0.9rem; }
+        .radar-data-table td { border: 1px solid #f0f0f0; padding: 8px; text-align: center; }
+        .radar-data-table tr:nth-child(even) { background-color: #fafafa; }
+        .label-cell { color: #666; font-weight: bold; width: 60%; text-align: left !important; padding-left: 15px !important; }
+        .value-cell { color: #e74c3c; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -51,26 +64,36 @@
     </div>
 
     <div class="card">
-        <h2>📊 區間統計摘要</h2>
+        <h2>📊 區間統計摘要與排行</h2>
         <div class="flex-row">
             <div class="input-group"><label>起始</label><input type="date" id="startDate"></div>
             <div class="input-group"><label>結束</label><input type="date" id="endDate"></div>
             <button style="background:#27ae60; flex: 1;" onclick="updateDashboard()">更新查詢數據</button>
         </div>
+        
         <div class="table-scroll">
             <table class="summary-table">
                 <thead><tr><th>任務項目</th><th>總計</th></tr></thead>
                 <tbody id="tableBody"></tbody>
             </table>
         </div>
+
+        <div id="chartsGrid" class="charts-grid"></div>
     </div>
 
-    <div id="chartsGrid" class="charts-grid"></div>
-
     <div class="card">
-        <h2>👤 個人生涯能力分析</h2>
+        <h2>👤 個人精熟度分析 (區間最長3個月)</h2>
+        <div class="flex-row">
+            <div class="input-group"><label>雷達起始</label><input type="date" id="radarStartDate"></div>
+            <div class="input-group"><label>雷達結束</label><input type="date" id="radarEndDate"></div>
+        </div>
         <div id="userButtons" class="user-btn-group"></div>
+        
         <div class="radar-box"><canvas id="personalRadarChart"></canvas></div>
+        
+        <div id="radarDataTableContainer" style="margin-top: 20px;">
+            <table class="radar-data-table" id="radarDataTable"></table>
+        </div>
     </div>
 </div>
 
@@ -81,6 +104,7 @@
     
     let radarChart = null;
     let allData = [];
+    let currentUserName = "";
 
     function setupUI() {
         const userSelect = document.getElementById('userName');
@@ -93,7 +117,7 @@
             const btn = document.createElement('div');
             btn.className = 'user-btn';
             btn.innerText = name;
-            btn.onclick = () => showPersonalRadar(name, btn);
+            btn.onclick = () => { currentUserName = name; showPersonalRadar(name, btn); };
             userButtons.appendChild(btn);
         });
         TASK_LIST.forEach(task => taskSelect.add(new Option(task, task)));
@@ -101,7 +125,6 @@
 
     async function loadDataAndDraw() {
         try {
-            // 注意這裡加了 ?getdata=1 以區分網頁顯示與資料抓取
             const res = await fetch(API_URL + "?getdata=1");
             allData = await res.json(); 
             updateDashboard();
@@ -138,30 +161,60 @@
         const grid = document.getElementById('chartsGrid');
         grid.innerHTML = '';
         if (!allData || allData.length <= 1) return;
-        TASK_LIST.forEach(task => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'chart-container';
-            wrapper.innerHTML = `<canvas id="bar-${task}"></canvas>`;
-            grid.appendChild(wrapper);
+
+        TASK_LIST.forEach((task, index) => {
+            const accordionItem = document.createElement('div');
+            accordionItem.className = 'accordion-item';
+            accordionItem.innerHTML = `
+                <button class="accordion-header" onclick="toggleAccordion(this)">📊 ${task} 排行榜</button>
+                <div class="accordion-content"><div class="chart-container"><canvas id="bar-${index}"></canvas></div></div>
+            `;
+            grid.appendChild(accordionItem);
+
             const stats = EMPLOYEE_LIST.map(name => {
-                return allData.slice(1).filter(row => {
+                const count = allData.slice(1).filter(row => {
                     const d = new Date(row[2]);
                     return row[0] === name && row[1] === task && (!start || d >= new Date(start)) && (!end || d <= new Date(end));
                 }).length;
-            });
-            new Chart(document.getElementById(`bar-${task}`), {
+                return { name, count };
+            }).sort((a, b) => b.count - a.count);
+
+            new Chart(document.getElementById(`bar-${index}`), {
                 type: 'bar',
-                data: { labels: EMPLOYEE_LIST, datasets: [{ label: '完成次數', data: stats, backgroundColor: '#3498db' }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, title: { display: true, text: task } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+                data: { labels: stats.map(s => s.name), datasets: [{ label: '完成次數', data: stats.map(s => s.count), backgroundColor: '#3498db' }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
             });
         });
     }
 
+    function toggleAccordion(button) {
+        button.classList.toggle('active');
+        const content = button.nextElementSibling;
+        content.style.display = (content.style.display === "block") ? "none" : "block";
+    }
+
     function showPersonalRadar(name, btnElement) {
-        document.querySelectorAll('.user-btn').forEach(b => b.classList.remove('active'));
-        btnElement.classList.add('active');
-        if (!allData || allData.length <= 1) return;
-        const stats = TASK_LIST.map(task => allData.slice(1).filter(row => row[0] === name && row[1] === task).length);
+        if (!name) return;
+        const rStart = document.getElementById('radarStartDate').value;
+        const rEnd = document.getElementById('radarEndDate').value;
+
+        if (rStart && rEnd) {
+            const diffDays = Math.ceil(Math.abs(new Date(rEnd) - new Date(rStart)) / (1000 * 60 * 60 * 24));
+            if (diffDays > 90) return alert("區間最長不得超過 3 個月。");
+        }
+
+        if (btnElement) {
+            document.querySelectorAll('.user-btn').forEach(b => b.classList.remove('active'));
+            btnElement.classList.add('active');
+        }
+
+        const stats = TASK_LIST.map(task => {
+            return allData.slice(1).filter(row => {
+                const d = new Date(row[2]);
+                return row[0] === name && row[1] === task && (!rStart || d >= new Date(rStart)) && (!rEnd || d <= new Date(rEnd));
+            }).length;
+        });
+
         const ctx = document.getElementById('personalRadarChart').getContext('2d');
         if (radarChart) radarChart.destroy();
         radarChart = new Chart(ctx, {
@@ -169,25 +222,37 @@
             data: { labels: TASK_LIST, datasets: [{ label: name, data: stats, backgroundColor: 'rgba(231, 76, 60, 0.2)', borderColor: '#e74c3c', pointBackgroundColor: '#e74c3c' }] },
             options: { responsive: true, maintainAspectRatio: false, scales: { r: { beginAtZero: true, ticks: { display: false, stepSize: 1 } } } }
         });
+
+        const dataTable = document.getElementById('radarDataTable');
+        let tableHtml = '';
+        TASK_LIST.forEach((task, i) => {
+            tableHtml += `<tr><td class="label-cell">${task}</td><td class="value-cell">${stats[i]} 次</td></tr>`;
+        });
+        dataTable.innerHTML = tableHtml;
     }
 
     async function submitReport() {
         const name = document.getElementById('userName').value;
         const task = document.getElementById('taskName').value;
         if (!name || !task) return alert("請完整填寫人員與任務");
-        if (!confirm(`確認提交：${name} - ${task}？`)) return;
         try {
             await fetch(API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ name, task }) });
-            alert("提交成功！數據正在背景更新...");
-            setTimeout(loadDataAndDraw, 1500); // 延時載入讓試算表寫入
-        } catch (e) { alert("提交失敗，請檢查網路。"); }
+            alert("提交成功！");
+            setTimeout(loadDataAndDraw, 1500);
+        } catch (e) { alert("提交失敗"); }
     }
 
     window.onload = function() {
         setupUI();
         const now = new Date();
-        document.getElementById('startDate').value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        document.getElementById('endDate').value = now.toISOString().split('T')[0];
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        const today = now.toISOString().split('T')[0];
+        document.getElementById('startDate').value = firstDay;
+        document.getElementById('endDate').value = today;
+        document.getElementById('radarStartDate').value = firstDay;
+        document.getElementById('radarEndDate').value = today;
+        document.getElementById('radarStartDate').onchange = () => showPersonalRadar(currentUserName);
+        document.getElementById('radarEndDate').onchange = () => showPersonalRadar(currentUserName);
         loadDataAndDraw();
     };
 </script>
